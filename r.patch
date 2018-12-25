@@ -1,0 +1,264 @@
+diff --git a/PlanPresentation/Drawer.cs b/PlanPresentation/Drawer.cs
+index 7833828..cc5f815 100644
+--- a/PlanPresentation/Drawer.cs
++++ b/PlanPresentation/Drawer.cs
+@@ -69,7 +69,14 @@ namespace PlanPresentation
+             foreach (var way in _planPresentor?.CurrentSolution ?? Enumerable.Empty<Way>())
+             {
+                 int i;
+-                var points = way.WayOut.Select(point => CenterOfCell(point.X, point.Y)).ToList();
++                var points = way.WayOut.Select(delegate(System.Drawing.Point point)
++                {
++                    var index = way.WayOut.ToList().IndexOf(point);
++                    double shiftX = index / 5.0,
++                        shiftY = index / 5.0;
++                    var centerOfNextCell = CenterOfCell(point.X, point.Y);
++                    return  new Point(centerOfNextCell.X + shiftX, centerOfNextCell.Y + shiftY);
++                }).ToList();
+                 var count = points.Count;
+                 var wayColor = new SolidColorBrush(Color.FromRgb((byte)r.Next(1, 255),
+                     (byte)r.Next(1, 255), (byte)r.Next(1, 233)));
+@@ -79,13 +86,12 @@ namespace PlanPresentation
+                     var wayLine = new ArrowLine
+                     {
+                         Stroke = wayColor,
+-                        StrokeThickness = 2,
++                        StrokeThickness = 1,
+                         X1 = points[i].X,
+                         Y1 = points[i].Y,
+                         X2 = points[i + 1].X,
+                         Y2 = points[i + 1].Y,
+-                        ArrowLength = 1,
+-                        Opacity = 0.5
++                        ArrowLength = 3,
+                     };
+                     _planPresentor.ViewWindow.Children.Add(wayLine);
+                 }
+diff --git a/PlanPresentation/PlanPresentor.cs b/PlanPresentation/PlanPresentor.cs
+index 882fd19..53a96d1 100644
+--- a/PlanPresentation/PlanPresentor.cs
++++ b/PlanPresentation/PlanPresentor.cs
+@@ -32,8 +32,19 @@ namespace PlanPresentation
+ 
+         public void RunRandomSimulation(IEnumerable<int> gatesCapasities, int peopleNumber)
+         {
+-            CurrentPlan = _planGenerator
+-                .LocateGatesAndPeopleRandom(CurrentPlan, gatesCapasities, peopleNumber);
++            CurrentPlan = _planGenerator.LocateGatesAndPeopleRandom(CurrentPlan, gatesCapasities, peopleNumber);
++            ResolvePlan();
++        }
++
++        public void ReloadPeople(int peopleNumber)
++        {
++            CurrentPlan = _planGenerator.RelocatePeople(CurrentPlan, peopleNumber);
++            ResolvePlan();
++        }
++
++        public void ReloadGates(IEnumerable<int> gateCapasities)
++        {
++            CurrentPlan = _planGenerator.RelocateGates(CurrentPlan, gateCapasities);
+             ResolvePlan();
+         }
+ 
+diff --git a/PlanService/PlanGenerator.cs b/PlanService/PlanGenerator.cs
+index 1f27cf0..c5eee18 100644
+--- a/PlanService/PlanGenerator.cs
++++ b/PlanService/PlanGenerator.cs
+@@ -19,10 +19,17 @@ namespace PlanService
+         }
+ 
+         public Plan LocateGatesAndPeopleRandom(Plan plan, IEnumerable<int> gatesCapasities, int peopleNumber)
++        {
++            RelocateGates(plan, gatesCapasities);
++            RelocatePeople(plan, peopleNumber);
++
++            return plan;
++        }
++
++        public Plan RelocatePeople(Plan plan, int peopleNumber)
+         {
+             foreach (var cell in plan)
+             {
+-                cell.GateCapasity = 0;
+                 cell.NumberOfManHere = 0;
+             }
+ 
+@@ -34,6 +41,18 @@ namespace PlanService
+                 plan[x, y].NumberOfManHere++;
+             }
+ 
++            return plan;
++        }
++
++        public Plan RelocateGates(Plan plan, IEnumerable<int> gatesCapasities)
++        {
++            foreach (var cell in plan)
++            {
++                cell.GateCapasity = 0;
++                cell.NumberOfManHere = 0;
++            }
++
++            var randomIndexGenerator = new Random();
+             foreach (var gatesCapasity in gatesCapasities)
+             {
+                 var x = randomIndexGenerator.Next(plan.Width);
+diff --git a/PlanView/MainWindow.xaml b/PlanView/MainWindow.xaml
+index 364e4b1..944d684 100644
+--- a/PlanView/MainWindow.xaml
++++ b/PlanView/MainWindow.xaml
+@@ -7,8 +7,11 @@
+         mc:Ignorable="d"
+         Title="EvacuationPlanning" Height="600" Width="600" MinWidth="600">
+     <Grid>
+-        <Canvas Name="Canvas" Margin="0,0,0,80" />
++        <Canvas Name="Canvas" Margin="0,0,0,80" Background="White" />
+         <Canvas />
++        <Button Name="ShowHintButton" 
++                Content="?" Width="10" Height="20" HorizontalAlignment="Right" VerticalAlignment="Top" 
++                Margin="10"/>
+         <Grid VerticalAlignment="Bottom" Height="80">
+ 
+             <Grid Name="PlanBlock" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="130" Height="74"
+@@ -38,9 +41,16 @@
+                 <TextBox Name="ManCount" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="10, 5"
+                          TextWrapping="Wrap" Width="30" Height="20" Text="6" />
+             </Grid>
+-
+-            <Button Name="StartButton" Content="Start simulation" HorizontalAlignment="Right"
+-                    VerticalAlignment="Bottom" Margin="20" Height="20" Width="90" />
++            <Grid VerticalAlignment="Center" HorizontalAlignment="Right" Width="210" Height="70">
++                <Button Name="RelocatePeople" Content="Relocate people" HorizontalAlignment="Left"
++                        VerticalAlignment="Top" Margin="10" Height="20" Width="90" Click="RelocatePeople_Click" />
++                <Button Name="RelocateGats" Content="Relocate Gates" HorizontalAlignment="Left"
++                        VerticalAlignment="Bottom" Margin="10" Height="20" Width="90" Click="RelocateGats_Click" />
++                <Button Name="ShowUnitsButton" Content="Show units" HorizontalAlignment="Right"
++                        VerticalAlignment="Top" Margin="10" Height="20" Width="90" Click="ShowUnitsButton_Click" />
++                <Button Name="StartButton" Content="Start simulation" HorizontalAlignment="Right"
++                        VerticalAlignment="Bottom" Margin="10" Height="20" Width="90" />
++            </Grid>
+         </Grid>
+     </Grid>
+ </Window>
+\ No newline at end of file
+diff --git a/PlanView/MainWindow.xaml.cs b/PlanView/MainWindow.xaml.cs
+index 2a2bd89..cad0bcd 100644
+--- a/PlanView/MainWindow.xaml.cs
++++ b/PlanView/MainWindow.xaml.cs
+@@ -1,7 +1,9 @@
+ ﻿using System;
+ using System.Linq;
+ using System.Windows;
++using System.Windows.Input;
+ using System.Windows.Media;
++using System.Windows.Shapes;
+ using PlanPresentation;
+ 
+ namespace EvacuationPlanningSystem
+@@ -14,6 +16,7 @@ namespace EvacuationPlanningSystem
+         private const double ScaleRate = 1.1;
+         private readonly PlanPresentor _planPresentor;
+         private DateTimeOffset _timeOffsetDueLastReload;
++        private Point _currentPoint;
+ 
+         public MainWindow()
+         {
+@@ -53,11 +56,6 @@ namespace EvacuationPlanningSystem
+             {
+                 try
+                 {
+-                    var manCount = int.Parse(ManCount.Text);
+-                    var gatesCapasities = GateCapasities.Text.Split(',').Select(int.Parse).ToList();
+-
+-                    _planPresentor.RunRandomSimulation(gatesCapasities, manCount);
+-                    _planPresentor.Drawer.DrawGatesAndPeople();
+                     _planPresentor.Drawer.DrawSolution();
+                 }
+                 catch (FormatException)
+@@ -82,6 +80,86 @@ namespace EvacuationPlanningSystem
+                     st.ScaleY /= ScaleRate;
+                 }
+             };
++
++            Canvas.MouseMove += (sender, e) =>
++            {
++                if (e.LeftButton != MouseButtonState.Pressed) return;
++                var line = new Line
++                {
++                    Stroke = new SolidColorBrush(Colors.DarkRed),
++                    StrokeThickness = 2,
++                    X1 = _currentPoint.X,
++                    Y1 = _currentPoint.Y,
++                    X2 = e.GetPosition(this).X,
++                    Y2 = e.GetPosition(this).Y
++                };
++
++
++                _currentPoint = e.GetPosition(this);
++
++                Canvas.Children.Add(line);
++            };
++            Canvas.MouseDown += (sender, e) =>
++            {
++                if (e.ButtonState == MouseButtonState.Pressed)
++                    _currentPoint = e.GetPosition(this);
++            };
++
++            ShowHintButton.Click += (sender, args) =>
++            {
++                MessageBox.Show($"Solution max length {_planPresentor.CurrentSolution.Max(way => way.WayOut.Count)}, " +
++                                $"mean {_planPresentor.CurrentSolution.Average(solution => solution.WayOut.Count):#,##0}");
++            };
++        }
++
++        private void ShowUnitsButton_Click(object sender, RoutedEventArgs e)
++        {
++            try
++            {
++                var manCount = int.Parse(ManCount.Text);
++                var gatesCapasities = GateCapasities.Text.Split(',').Select(int.Parse).ToList();
++
++                _planPresentor.RunRandomSimulation(gatesCapasities, manCount);
++                _planPresentor.Drawer.DrawGatesAndPeople();
++            }
++            catch (FormatException)
++            {
++                MessageBox.Show(
++                    "Ivalid gates capasities or man count. It must be list of integer (for example \"1,2,4,4\")\n" +
++                    "Man count must be integer");
++            }
++        }
++
++        private void RelocateGats_Click(object sender, RoutedEventArgs e)
++        {
++            try
++            {
++                var gatesCapasities = GateCapasities.Text.Split(',').Select(int.Parse).ToList();
++                
++                _planPresentor.ReloadGates(gatesCapasities);
++                _planPresentor.Drawer.DrawGatesAndPeople();
++            }
++            catch (FormatException)
++            {
++                MessageBox.Show(
++                    "Ivalid gates capasities. It must be list of integer (for example \"1,2,4,4\")");
++            }
++        }
++
++        private void RelocatePeople_Click(object sender, RoutedEventArgs e)
++        {
++            try
++            {
++                var manCount = int.Parse(ManCount.Text);
++
++                _planPresentor.ReloadPeople(manCount);
++                _planPresentor.Drawer.DrawGatesAndPeople();
++            }
++            catch (FormatException)
++            {
++                MessageBox.Show(
++                    "Ivalid number of people. It must be integer");
++            }
+         }
+     }
+ }
+\ No newline at end of file
